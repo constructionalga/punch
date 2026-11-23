@@ -83,10 +83,10 @@ textarea{min-height:64px;resize:vertical}
     <div id="pending" style="display:grid;gap:10px"></div>
 
     <section class="card">
-      <h2>Mon chantier</h2>
+      <h2>Information de projet</h2>
       <label>Projet<select id="chProj"></select></label>
       <div id="chInfo"></div>
-      <p class="hint" style="margin:0">Ce projet est repris automatiquement dans « Ma journée ».</p>
+      <p class="hint" style="margin:0">Pour l'adresse et le dossier Drive seulement. Tu choisis tes projets plus bas, dans « Ma journée ».</p>
     </section>
 
     <section class="card">
@@ -94,7 +94,7 @@ textarea{min-height:64px;resize:vertical}
       <label>Date<input type="date" id="date"></label>
       <div id="lines" style="display:grid;gap:10px"></div>
       <button class="btn ghost" id="add">+ Un autre projet</button>
-      <label>Dîner (minutes)<input id="pause" inputmode="numeric" placeholder="ex. 30"></label><p class="hint" style="margin:0">Seulement le nombre de minutes. Mets 0 s'il n'y a pas eu de dîner.</p>
+      <div class="times"><label>Dîner : début<input type="time" id="dDeb"></label><label>Dîner : fin<input type="time" id="dFin"></label></div><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="noD" style="width:auto"> Pas de dîner aujourd'hui</label><p class="hint" style="margin:0">Mets l'heure réelle du dîner, même s'il tombe pendant un déplacement : il sera retiré au bon endroit.</p>
       
       <p class="hint" id="totalLine" style="margin:0;font-weight:600"></p>
 
@@ -172,7 +172,7 @@ function optsHTML(sel,q){
   return '<option value="">'+(words.length?(list.length-2)+' résultat(s)…':'Choisir…')+'</option>'+list.map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(plabel(p))+'</option>';}).join('');
 }
 function lineHTML(i,l){
-  var sel=l?l.projet:(i===0&&$('chProj')?$('chProj').value:'');
+  var sel=l?l.projet:'';
   return '<div class="line" data-i="'+i+'"><div class="top"><span>Projet '+(i+1)+'</span>'+(i>0?'<button class="x" type="button" data-rm="'+i+'" aria-label="Enlever">×</button>':'')+'</div>'+
     (S.projets.length>12?'<label>Chercher un projet<input class="f" type="search" placeholder="nom, rue ou nº de dossier"></label>':'')+
     '<label>Projet<select class="p">'+optsHTML(sel,'')+'</select></label>'+
@@ -186,12 +186,12 @@ $('lines').addEventListener('change',function(e){if(!e.target.classList.contains
 function drawLines(ls){$('lines').innerHTML=(ls.length?ls:[null]).map(function(l,i){return lineHTML(i,l);}).join('');if(S)updUI();}
 function mins(t){var m=/^(\d{1,2}):(\d{2})$/.exec(t||'');return m?(+m[1])*60+(+m[2]):-1;}
 function updUI(){
-  var ls=readLines(),tot=0,ok=false,pa=parseInt($('pause').value,10)||0;
-  ls.forEach(function(l){var a=mins(l.debut),b=mins(l.fin);if(a>=0&&b>a){tot+=b-a;ok=true;}});
-  var seg=[];ls.forEach(function(l){var a=mins(l.debut),b=mins(l.fin);if(a>=0&&b>a)seg.push([a,b]);});seg.sort(function(x,y){return x[0]-y[0];});
-  var gaps=0,gapMidi=false;for(var i=1;i<seg.length;i++){var g=seg[i][0]-seg[i-1][1];if(g>0){gaps+=g;if(seg[i-1][1]<=720&&seg[i][0]>720)gapMidi=true;}}
-  var trav=Math.max(0,gaps-(gapMidi?pa:0)),h2=function(m){return Math.round(m/60*100)/100;};
-  $('totalLine').textContent=ok?('Total : '+h2(tot+gaps-pa)+' h'+(trav?' (dont '+h2(trav)+' h de déplacement, calculé entre tes projets)':'')):'';
+  var ls=readLines(),ok=false,nd=$('noD').checked,d1=mins($('dDeb').value),d2=mins($('dFin').value),h2=function(m){return Math.round(m/60*100)/100;};
+  $('dDeb').disabled=nd;$('dFin').disabled=nd;
+  var useD=!nd&&d1>=0&&d2>d1;var ov=function(x,y){return useD?Math.max(0,Math.min(y,d2)-Math.max(x,d1)):0;};
+  var seg=[];ls.forEach(function(l){var a=mins(l.debut),b=mins(l.fin);if(a>=0&&b>a){seg.push([a,b]);ok=true;}});seg.sort(function(x,y){return x[0]-y[0];});
+  var tot=0,trav=0;seg.forEach(function(s,i){tot+=s[1]-s[0]-ov(s[0],s[1]);if(i>0){var g1=seg[i-1][1];if(s[0]>g1)trav+=s[0]-g1-ov(g1,s[0]);}});
+  $('totalLine').textContent=ok?('Total : '+h2(tot+trav)+' h'+(trav?' (dont '+h2(trav)+' h de déplacement, calculé entre tes projets)':'')):'';
   var links=[];
   ls.forEach(function(l){var p=S.projets.filter(function(x){return x.id===l.projet;})[0];if(p&&p.drive&&!links.some(function(k){return k.u===p.drive;}))links.push({u:p.drive,n:p.nom});});
   $('driveLinks').innerHTML=links.map(function(k){return '<a class="btn ghost small" target="_blank" rel="noopener" href="'+esc(k.u)+'">Voir le Drive : '+esc(k.n)+'</a>';}).join('');
@@ -205,13 +205,12 @@ document.querySelectorAll('.yn[data-q]').forEach(function(g){g.addEventListener(
 
 function pname(id){var p=S.projets.filter(function(x){return x.id===id;})[0];return p?p.nom:id;}
 function existingDay(d){return S.historique.filter(function(h){return h.date===d;})[0];}
-$('date').addEventListener('change',function(){var h=existingDay($('date').value);$('raisonBox').hidden=!h;if(h){drawLines(h.lignes);$('pause').value=h.pause;}else{drawLines([]);$('pause').value='';}updUI();});
+$('date').addEventListener('change',function(){var h=existingDay($('date').value);$('raisonBox').hidden=!h;if(h){drawLines(h.lignes);$('dDeb').value='';$('dFin').value='';$('noD').checked=false;}else{drawLines([]);$('dDeb').value='';$('dFin').value='';$('noD').checked=false;}updUI();});
 
 function chantierUI(){var sel=$('chProj'),cur=sel.value;sel.innerHTML='<option value="">Choisis un projet</option>'+S.projets.filter(function(p){return p.id!=='AUTRE'&&p.id!=='NOUVEAU';}).map(function(p){return '<option value="'+esc(p.id)+'">'+esc(plabel(p))+'</option>';}).join('');if(cur)sel.value=cur;chInfo();}
 function chInfo(){var p=S.projets.filter(function(x){return x.id===$('chProj').value;})[0],el=$('chInfo'),h='';if(!p){el.innerHTML='';return;}if(p.adresse){var q=encodeURIComponent(p.adresse);h+='<div style="display:grid;gap:6px"><div style="font-weight:600">\uD83D\uDCCD '+esc(p.adresse)+'</div><div style="display:flex;gap:8px"><a class="btn ghost small" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query='+q+'">Google Maps</a><a class="btn ghost small" target="_blank" rel="noopener" href="https://waze.com/ul?q='+q+'&navigate=yes">Waze</a></div></div>';}if(p.drive)h+='<a class="btn ghost small" target="_blank" rel="noopener" href="'+esc(p.drive)+'">\uD83D\uDCC1 Description des travaux et dossier du projet</a>';else h+='<p class="hint" style="margin:0">Pas de dossier Drive pour ce projet.</p>';el.innerHTML='<div style="display:grid;gap:8px">'+h+'</div>';}
-function chApply(){var v=$('chProj').value,s=document.querySelector('#lines select.p');if(v&&s&&!s.value)s.value=v;if(S)updUI();}
+function chApply(){}
 $('chProj').onchange=function(){chInfo();chApply();};
-$('lines').addEventListener('change',function(e){var s=e.target;if(s&&s.classList&&s.classList.contains('p')&&s===document.querySelector('#lines select.p')&&s.value&&!$('chProj').value){$('chProj').value=s.value;if($('chProj').value===s.value)chInfo();}});
 function render(st){
   S=st;$('login').hidden=true;$('app').hidden=false;$('logout').hidden=false;$('loginErr').hidden=true;
   $('who').textContent=fmtDay(st.today);$('whoName').textContent=st.nom;chantierUI();
@@ -303,9 +302,9 @@ $('send').onclick=function(){
   var lignes=readLines().filter(function(l){return l.projet||l.debut||l.fin||l.desc;});
   if(!lignes.length){show($('msg'),'Ajoute au moins un projet.','err');return;}
   for(var k=0;k<lignes.length;k++){var l=lignes[k];if(!l.projet||mins(l.debut)<0||mins(l.fin)<=mins(l.debut)||!l.desc.trim()){show($('msg'),'Projet '+(k+1)+' : choisis le projet, l\'heure de début et de fin (la fin après le début) et décris les travaux.','err');return;}}
-  if($('pause').value.trim()===''){show($('msg'),'Écris les minutes de dîner (0 s\'il n\'y en a pas).','err');return;}
+  if(!$('noD').checked&&(mins($('dDeb').value)<0||mins($('dFin').value)<=mins($('dDeb').value))){show($('msg'),'Écris l\'heure de début et de fin du dîner (ou coche « Pas de dîner »).','err');return;}
   if(!answers.photos||!answers.factures){show($('msg'),'Réponds aux deux questions : photos et factures.','err');return;}
-  var date=$('date').value,payload={date:date,lignes:lignes,route:0,pause:$('pause').value.trim(),photos:answers.photos,factures:answers.factures,raison:$('raison').value};
+  var date=$('date').value,payload={date:date,lignes:lignes,route:0,noDiner:$('noD').checked,dinerDebut:$('dDeb').value,dinerFin:$('dFin').value,photos:answers.photos,factures:answers.factures,raison:$('raison').value};
   $('send').disabled=true;show($('msg'),'Envoi…','ok');
   call('submit',[CODE,payload],function(st){
     var pf=$('photosFiles').files,ff=$('facturesFiles').files,first=lignes[0].projet;
